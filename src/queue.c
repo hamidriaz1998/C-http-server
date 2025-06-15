@@ -13,7 +13,7 @@ void queue_init(Queue *q) {
 }
 
 bool enqueue(Queue *q, void *data) {
-  QueueNode *new_node = (QueueNode *)malloc(sizeof(QueueNode));
+  queue_node_t *new_node = (queue_node_t *)malloc(sizeof(queue_node_t));
   if (new_node == NULL) {
     return false;
   }
@@ -36,7 +36,7 @@ void *dequeue(Queue *q) {
     return NULL;
   }
 
-  QueueNode *head = q->head;
+  queue_node_t *head = q->head;
   q->head = head->next;
   q->size--;
 
@@ -54,9 +54,9 @@ void queue_free(Queue *q) {
   if (queue_isempty(q)) {
     return;
   }
-  QueueNode *current = q->head;
+  queue_node_t *current = q->head;
   while (current != NULL) {
-    QueueNode *next = current->next;
+    queue_node_t *next = current->next;
     free(current);
     current = next;
   }

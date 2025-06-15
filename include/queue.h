@@ -3,14 +3,14 @@
 
 #include<stdbool.h>
 
-typedef struct queueNode {
+typedef struct queue_node {
   void *data;
-  struct queueNode *next;
-} QueueNode;
+  struct queue_node *next;
+} queue_node_t;
 
 typedef struct Queue {
-  QueueNode *head;
-  QueueNode *tail;
+  queue_node_t *head;
+  queue_node_t *tail;
   int size;
 } Queue;
 
