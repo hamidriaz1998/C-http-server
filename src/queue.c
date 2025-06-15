@@ -3,13 +3,16 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-void queue_init(Queue *q) {
-  if (q != NULL) {
-    return;
+Queue *queue_init() {
+  Queue *q = (Queue *)malloc(sizeof(Queue));
+  if (q == NULL) {
+    return NULL;
   }
   q->head = NULL;
   q->tail = NULL;
   q->size = 0;
+
+  return q;
 }
 
 bool enqueue(Queue *q, void *data) {
@@ -32,26 +35,27 @@ bool enqueue(Queue *q, void *data) {
 }
 
 void *dequeue(Queue *q) {
-  if (queue_isempty(q)) {
+  if (q == NULL || queue_isempty(q)) {
     return NULL;
   }
 
   queue_node_t *head = q->head;
   q->head = head->next;
+
+  if (q->head == NULL) {
+    q->tail = NULL;
+  }
+
   q->size--;
-
   void *data = head->data;
-
-  // Free QueueNode
   free(head);
-
   return data;
 }
 
 bool queue_isempty(Queue *q) { return q->head == NULL; }
 
 void queue_free(Queue *q) {
-  if (queue_isempty(q)) {
+  if (q == NULL) {
     return;
   }
   queue_node_t *current = q->head;

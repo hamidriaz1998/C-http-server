@@ -1,7 +1,7 @@
 #ifndef QUEUE_H
 #define QUEUE_H
 
-#include<stdbool.h>
+#include <stdbool.h>
 
 typedef struct queue_node {
   void *data;
@@ -14,7 +14,7 @@ typedef struct Queue {
   int size;
 } Queue;
 
-void queue_init(Queue *q);
+Queue *queue_init();
 bool enqueue(Queue *q, void *data);
 void *dequeue(Queue *q);
 bool queue_isempty(Queue *q);
