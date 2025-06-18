@@ -1,31 +1,46 @@
-#include "include/queue.h"
+#include "include/network.h"
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
+static server_t *server_g = NULL;
+void signal_handler(int signum) {
+  printf("Received signal %d, shutting down server\n", signum);
+  if (server_g != NULL) {
+    server_g->is_running = false;
+
+    if (server_g->socket != -1) {
+      close(server_g->socket);
+    }
+  }
+}
 
 int main() {
-  Queue *queue = (Queue *)malloc(sizeof(Queue));
-  queue_init(queue);
-  int i;
-  for (i = 0; i < 20; i += 1) {
-    int *value = (int *)malloc(sizeof(int));
-    *value = i;
-    if (enqueue(queue, (void *)value)) {
-      printf("Enqueued %d\n", *value);
-    } else {
-      printf("Enqueue failed: %d\n", *value);
-    }
+  // Setup signal handlers
+  signal(SIGINT, signal_handler);
+  signal(SIGTERM, signal_handler);
+  signal(SIGQUIT, signal_handler);
+
+  server_t *server = init_server(PORT, 100, 8);
+  if (!setup_server(server)) {
+    fprintf(stderr, "Failed to setup server\n");
+    free_server(server);
+    exit(EXIT_FAILURE);
+  }
+  server_g = server;
+
+  printf("Server started on port %d .... Press Ctrl+C to stop\n", PORT);
+
+  if (!run_server(server)) {
+    fprintf(stderr, "Failed to run server\n");
+    free_server(server);
+    exit(EXIT_FAILURE);
   }
 
-  while (!queue_isempty(queue)) {
-    void *value = dequeue(queue);
-    if (value == NULL) {
-      break;
-    }
-    int *i_ptr = (int *)value;
-    printf("Dequeued %d\n", *i_ptr);
-    free(i_ptr);
-  }
+  printf("Cleaning up...\n");
+  free_server(server);
+  server_g = NULL;
 
-  queue_free(queue);
   return 0;
 }
