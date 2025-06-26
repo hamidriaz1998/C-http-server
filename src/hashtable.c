@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-ht *ht_create() {
-  ht *table = (ht *)malloc(sizeof(ht));
+hashtable *ht_create() {
+  hashtable *table = (hashtable *)malloc(sizeof(hashtable));
   if (table == NULL) {
     return NULL;
   }
@@ -19,7 +19,7 @@ ht *ht_create() {
   return table;
 }
 
-void ht_destroy(ht *table) {
+void ht_destroy(hashtable *table) {
   if (table == NULL) {
     return;
   }
@@ -31,7 +31,7 @@ void ht_destroy(ht *table) {
   free(table);
 }
 
-void *ht_get(ht *table, const char *key) {
+void *ht_get(hashtable *table, const char *key) {
   uint64_t hash = hash_key(key);
   size_t index = (size_t)(hash & (uint64_t)(table->capacity - 1));
 
@@ -47,7 +47,7 @@ void *ht_get(ht *table, const char *key) {
   return NULL;
 }
 
-const char *ht_set(ht *table, const char *key, void *value) {
+const char *ht_set(hashtable *table, const char *key, void *value) {
   if (value == NULL) {
     return NULL;
   }
@@ -91,7 +91,7 @@ static const char *ht_set_entry(ht_entry *entries, size_t capacity,
   return key;
 }
 
-static bool ht_expand(ht *table) {
+static bool ht_expand(hashtable *table) {
   size_t new_cap = table->capacity * 2;
   if (new_cap < table->capacity) {
     return false; // Overflow
