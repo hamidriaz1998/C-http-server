@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#define INTIAL_CAPACITY 5
+#define INITIAL_CAPACITY 5
 
 typedef struct {
   const char *key;

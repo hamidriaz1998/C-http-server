@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "../include/hashtable.h"
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,7 +10,7 @@ hashtable *ht_create() {
     return NULL;
   }
   table->length = 0;
-  table->capacity = INTIAL_CAPACITY;
+  table->capacity = INITIAL_CAPACITY;
 
   table->entries = calloc(table->capacity, sizeof(ht_entry));
   if (table->entries == NULL) {
