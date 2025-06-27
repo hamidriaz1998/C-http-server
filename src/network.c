@@ -146,7 +146,7 @@ void connection_handler(void *arg) {
   int fd = *(int *)arg;
   free(arg);
 
-  if (send(fd, "Welcome to the server", 22, 0) == -1) {
+  if (send(fd, "Welcome to the server\n", 23, 0) == -1) {
     perror("send");
   }
   close(fd);
