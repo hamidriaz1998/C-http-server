@@ -73,6 +73,7 @@ bool setup_server(server_t *server) {
                    sizeof(int)) == -1) {
       perror("setsockopt");
       freeaddrinfo(servinfo);
+      close(server->socket);
       return false;
     }
 

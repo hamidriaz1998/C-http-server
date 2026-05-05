@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+static uint64_t hash_key(const char *key);
+static const char *ht_set_entry(ht_entry *entries, size_t capacity,
+                                const char *key, void *value, size_t *plength);
+static bool ht_expand(hashtable *table);
+
 hashtable *ht_create() {
   hashtable *table = (hashtable *)malloc(sizeof(hashtable));
   if (table == NULL) {
@@ -128,4 +133,24 @@ static uint64_t hash_key(const char *key) {
     hash *= FNV_PRIME;
   }
   return hash;
+}
+
+hashtable *ht_copy(hashtable *table) {
+  hashtable *new_table = malloc(sizeof(hashtable));
+  if (new_table == NULL) {
+    return NULL;
+  }
+  *new_table = *table;
+  new_table->entries = calloc(new_table->capacity, sizeof(ht_entry));
+  if (new_table->entries == NULL) {
+    free(new_table);
+    return NULL;
+  }
+  for (size_t i = 0; i < table->capacity; i++) {
+    if (table->entries[i].key != NULL) {
+      ht_set_entry(new_table->entries, new_table->capacity,
+                   table->entries[i].key, table->entries[i].value, NULL);
+    }
+  }
+  return new_table;
 }

@@ -52,7 +52,11 @@ void *dequeue(Queue *q) {
   return data;
 }
 
-bool queue_isempty(Queue *q) { return q->head == NULL; }
+bool queue_isempty(Queue *q) {
+  if (q)
+    return q->head == NULL;
+  return false;
+}
 
 void queue_free(Queue *q) {
   if (q == NULL) {

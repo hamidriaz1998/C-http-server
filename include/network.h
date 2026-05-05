@@ -2,6 +2,7 @@
 #define NETWORK_H
 
 #include "thread_pool.h"
+#include <signal.h>
 #include <sys/socket.h>
 
 #define PORT 9000
@@ -15,7 +16,7 @@ typedef struct server {
   int socket;
   int port;
   int max_connections;
-  int is_running;
+  volatile sig_atomic_t is_running;
 } server_t;
 
 server_t *init_server(int port, int max_connections, int thread_count);

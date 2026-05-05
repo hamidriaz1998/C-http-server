@@ -1,21 +1,24 @@
 #include "../include/handler.h"
 #include "../include/http.h"
+#include "../include/utils.h"
 #include <fcntl.h>
+#include <linux/limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define BUFFER_SIZE 2048
 
 void handler(void *arg) {
-  int fd = *(int *)arg;
+  int socket_fd = *(int *)arg;
   char *buffer = (char *)calloc(1, BUFFER_SIZE);
   free(arg);
 
-  int bytes_received = recv(fd, buffer, BUFFER_SIZE, 0);
+  int bytes_received = recv(socket_fd, buffer, BUFFER_SIZE - 1, 0);
   if (bytes_received > 0) {
     buffer[bytes_received] = '\0';
     printf("Received %d bytes of data\n", bytes_received);
@@ -26,7 +29,7 @@ void handler(void *arg) {
     if (req != NULL) {
 #ifdef DEBUG
       printf("\n=== Parsed HTTP Request ===\n");
-      printf("Method: %s\n", req->method);
+      printf("Method: %s\n", method_to_string(req->method));
       printf("Path: %s\n", req->path);
       printf("Version: %s\n", req->version);
       printf("\nHeaders:\n");
@@ -43,19 +46,10 @@ void handler(void *arg) {
       }
       printf("============================\n\n");
 #endif
-      char *path = req->path;
-      if (path[0] == '/') {
-        path++;
-      }
-      if (strcmp(path, "") == 0) {
-        path = "index.html";
-      }
-      char *full_path = (char *)calloc(1, strlen(path) + 1);
-      strcpy(full_path, path);
-      if (stream_send_file(fd, full_path) == -1) {
-        perror("stream_send_file");
-        free_http_request(req);
-        return;
+      switch (req->method) {
+      case HTTP_GET:
+        handle_get(req, socket_fd);
+        break;
       }
       free_http_request(req);
     } else {
@@ -65,30 +59,59 @@ void handler(void *arg) {
   }
 
   free(buffer);
-  close(fd);
+  close(socket_fd);
 }
 
-int stream_send_file(int socket_fd, const char *filename) {
-  int file_fd = open(filename, O_RDONLY);
+void handle_get(http_request *req, int socket_fd) {
+  const char *doc_root = "./public";
+  char full_path[PATH_MAX];
+
+  if (resolve_request_path(req->path, doc_root, full_path, sizeof(full_path)) !=
+      0) {
+    printf("Error resolving request path: %s\n", req->path);
+    http_response *res = http_response_create(404, NULL, 0, NULL);
+    send_response(socket_fd, res);
+    return;
+  }
+
+  int file_fd = open(full_path, O_RDONLY);
   if (file_fd == -1) {
     perror("open");
-    return -1;
+    return;
   }
 
   struct stat sb;
   if (fstat(file_fd, &sb) == -1) {
     perror("fstat");
     close(file_fd);
-    return -1;
+    return;
   }
+  // Send status line and headers
+  const char *content_type = get_mime_type(full_path);
 
-  off_t offset = 0;
-  ssize_t bytes_sent = sendfile(socket_fd, file_fd, &offset, sb.st_size);
-  if (bytes_sent == -1) {
-    perror("sendfile");
-    close(file_fd);
-    return -1;
+  hashtable *headers = ht_create();
+  char content_length[20];
+  sprintf(content_length, "%ld", sb.st_size);
+  ht_set(headers, "Content-Type", (void *)content_type);
+  ht_set(headers, "Content-Length", (void *)content_length);
+  http_response *res = http_response_create(200, NULL, 0, headers);
+  send_response(socket_fd, res);
+  free_http_response(res);
+  // ht_destroy(headers);
+
+  // Send file content
+  if (stream_send_file(socket_fd, file_fd, &sb) == -1) {
+    return;
   }
   close(file_fd);
+}
+
+int stream_send_file(int socket_fd, int file_fd, struct stat *sb) {
+  off_t offset = 0;
+  ssize_t bytes_sent = sendfile(socket_fd, file_fd, &offset, sb->st_size);
+  if (bytes_sent == -1) {
+    perror("sendfile");
+    return -1;
+  }
   return 0;
 }

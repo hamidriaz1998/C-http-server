@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "include/handler.h"
 #include "include/network.h"
 #include <signal.h>
@@ -19,9 +20,12 @@ void signal_handler(int signum) {
 
 int main() {
   // Setup signal handlers
-  signal(SIGINT, signal_handler);
-  signal(SIGTERM, signal_handler);
-  signal(SIGQUIT, signal_handler);
+  struct sigaction sa;
+  sa.sa_handler = signal_handler;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+  sigaction(SIGQUIT, &sa, NULL);
 
   server_t *server = init_server(PORT, 100, 8);
   if (!setup_server(server)) {

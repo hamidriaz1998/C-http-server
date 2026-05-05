@@ -1,5 +1,4 @@
 #include "../include/thread_pool.h"
-#include <bits/pthreadtypes.h>
 #include <pthread.h>
 #include <stdlib.h>
 
@@ -7,10 +6,10 @@ thread_pool_t *thread_pool_init(int num_threads) {
 
   // Initialize thread pool struct
   thread_pool_t *thp = (thread_pool_t *)malloc(sizeof(thread_pool_t));
-  if (thp == NULL){
-      return NULL;
+  if (thp == NULL) {
+    return NULL;
   }
-  
+
   // Initialize thread array
   thp->threads = (pthread_t *)malloc(sizeof(pthread_t) * num_threads);
   if (NULL == thp->threads) {
