@@ -51,12 +51,7 @@ http_request *parse_request(char *req_str) {
   req->version = strdup(version);
 
   if (req->method == NULL || req->path == NULL || req->version == NULL) {
-    if (req->method)
-      free(req->method);
-    if (req->path)
-      free(req->path);
-    if (req->version)
-      free(req->version);
+    free_http_request(req);
     free(line_copy);
     free(req_copy);
     free(req);

@@ -100,7 +100,7 @@ bool setup_server(server_t *server) {
   return true;
 }
 
-bool run_server(server_t *server) {
+bool run_server(server_t *server, void (*connection_handler)(void *)) {
   if (server == NULL) {
     return false;
   }
@@ -140,16 +140,6 @@ bool run_server(server_t *server) {
     thread_pool_add_task(server->thp, connection_handler, (void *)socket);
   }
   return true;
-}
-
-void connection_handler(void *arg) {
-  int fd = *(int *)arg;
-  free(arg);
-
-  if (send(fd, "Welcome to the server\n", 23, 0) == -1) {
-    perror("send");
-  }
-  close(fd);
 }
 
 void free_server(server_t *server) {

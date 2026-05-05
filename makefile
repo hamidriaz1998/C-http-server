@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -Iinclude -Wall -Wextra -std=c11 -g
+DEBUG_CFLAGS = $(CFLAGS) -DDEBUG
 
 SRC_DIR = src
 OBJ_DIR = obj
@@ -20,6 +21,9 @@ $(EXECUTABLE): $(OBJECTS) | $(BIN_DIR)
 
 $(OBJ_DIR)/%.o: %.c | $(OBJ_DIR) $(OBJ_DIR)/$(SRC_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+debug: $(OBJECTS) | $(BIN_DIR)
+	$(CC) $(DEBUG_CFLAGS) -o $(EXECUTABLE) $^
 
 # Generic test target: make test-<component>
 # Example: make test-http will compile and run tests/test_http.c

@@ -1,3 +1,4 @@
+#include "include/handler.h"
 #include "include/network.h"
 #include <signal.h>
 #include <stdio.h>
@@ -32,7 +33,7 @@ int main() {
 
   printf("Server started on port %d .... Press Ctrl+C to stop\n", PORT);
 
-  if (!run_server(server)) {
+  if (!run_server(server, handler)) {
     fprintf(stderr, "Failed to run server\n");
     free_server(server);
     exit(EXIT_FAILURE);

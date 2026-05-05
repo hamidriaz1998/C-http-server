@@ -19,7 +19,7 @@ typedef struct server {
 } server_t;
 
 server_t *init_server(int port, int max_connections, int thread_count);
-bool run_server(server_t *server);
+bool run_server(server_t *server, void (*connection_handler)(void *));
 bool setup_server(server_t *server);
 void free_server(server_t *server);
 void connection_handler(void *arg);

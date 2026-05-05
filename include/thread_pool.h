@@ -15,7 +15,6 @@ typedef struct thread_pool {
 
   pthread_mutex_t lock;
   pthread_cond_t task_added_c;
-  
   bool shutdown;
   int num_threads;
 } thread_pool_t;

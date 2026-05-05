@@ -2,7 +2,6 @@
 #include "../include/http.h"
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 void print_request(http_request *req) {
