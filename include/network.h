@@ -9,7 +9,6 @@
 #define MAX_CONNECTIONS 10000
 #define MAX_THREADS 10
 #define DEFAULT_THREADS 8
-#define BACKLOG 30
 #define BUFFER_SIZE 4096
 
 typedef struct server {
@@ -17,12 +16,14 @@ typedef struct server {
   int socket;
   int port;
   int max_connections;
+  pthread_t acceptor_thread;
   volatile sig_atomic_t is_running;
+  void (*connection_handler)(void *);
 } server_t;
 
 server_t *init_server(int port, int max_connections, int thread_count);
-bool run_server(server_t *server, void (*connection_handler)(void *));
-bool setup_server(server_t *server);
+bool run_server(server_t *server);
+bool setup_server(server_t *server, void (*connection_handler)(void *));
 void free_server(server_t *server);
 void connection_handler(void *arg);
 

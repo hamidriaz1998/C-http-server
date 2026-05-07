@@ -1,34 +1,31 @@
 #define _GNU_SOURCE
-#include "include/handler.h"
 #include "include/network.h"
+#include "include/thread_handler.h"
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 static server_t *server_g = NULL;
-void signal_handler(int signum) {
-  printf("Received signal %d, shutting down server\n", signum);
-  if (server_g != NULL) {
-    server_g->is_running = false;
-
-    if (server_g->socket != -1) {
-      close(server_g->socket);
-    }
-  }
-}
 
 int main() {
   // Setup signal handlers
-  struct sigaction sa;
-  sa.sa_handler = signal_handler;
-  sigemptyset(&sa.sa_mask);
-  sigaction(SIGINT, &sa, NULL);
-  sigaction(SIGTERM, &sa, NULL);
-  sigaction(SIGQUIT, &sa, NULL);
+  sigset_t set;
+  int sig;
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGTERM);
+  sigaddset(&set, SIGQUIT);
+
+  if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0) {
+    perror("sigprocmask");
+    exit(EXIT_FAILURE);
+  }
 
   server_t *server = init_server(PORT, MAX_CONNECTIONS, DEFAULT_THREADS);
-  if (!setup_server(server)) {
+  if (!setup_server(server, connection_handler)) {
     fprintf(stderr, "Failed to setup server\n");
     free_server(server);
     exit(EXIT_FAILURE);
@@ -37,13 +34,25 @@ int main() {
 
   printf("Server started on port %d .... Press Ctrl+C to stop\n", PORT);
 
-  if (!run_server(server, handler)) {
+  if (!run_server(server)) {
     fprintf(stderr, "Failed to run server\n");
     free_server(server);
     exit(EXIT_FAILURE);
   }
 
+  if (sigwait(&set, &sig) != 0) {
+    fprintf(stderr, "sigwait failed\n");
+    free_server(server);
+    exit(EXIT_FAILURE);
+  }
+
+  printf("\nReceived signal %d. Shutting down...\n", sig);
   printf("Cleaning up...\n");
+
+  server->is_running = false;
+  shutdown(server->socket, SHUT_RDWR);
+  pthread_join(server->acceptor_thread, NULL);
+
   free_server(server);
   server_g = NULL;
 

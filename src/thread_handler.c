@@ -1,24 +1,65 @@
-#include "../include/handler.h"
+#define _GNU_SOURCE
+#include "../include/thread_handler.h"
 #include "../include/http.h"
+#include "../include/network.h"
 #include "../include/utils.h"
+#include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <linux/limits.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
 
-#define HANDLER_BUFFER_SIZE 2048
+int stream_send_file(int socket_fd, int file_fd, struct stat *sb);
+void handle_get(http_request *req, int socket_fd);
+void *get_in_addr(struct sockaddr *sa);
 
-void handler(void *arg) {
+void *acceptor_thread(void *arg) {
+  server_t *server = (server_t *)arg;
+  struct sockaddr_storage client_addr; // Client address info
+  char s[INET6_ADDRSTRLEN];
+  while (server->is_running) {
+    socklen_t size = sizeof(client_addr);
+    int client_socket =
+        accept(server->socket, (struct sockaddr *)&client_addr, &size);
+
+    if (client_socket == -1) {
+      if (errno != // The shutdown() in main causes accept to return
+          EINVAL)  // EINVAL and we don't want to print it on exiting the server
+
+        perror("accept");
+      continue;
+    }
+    if (!server->is_running) {
+      close(client_socket);
+      break;
+    }
+
+    inet_ntop(client_addr.ss_family,
+              get_in_addr((struct sockaddr *)&client_addr), s, sizeof(s));
+    printf("Got connection from %s\n", s);
+
+    // Handle connections
+    int *socket = (int *)malloc(
+        sizeof(int)); // client socket on heap for passing to thread
+    *socket = client_socket;
+    thread_pool_add_task(server->thp, server->connection_handler,
+                         (void *)socket);
+  }
+  return NULL;
+}
+
+void connection_handler(void *arg) {
   int socket_fd = *(int *)arg;
-  char *buffer = (char *)calloc(1, HANDLER_BUFFER_SIZE);
+  char *buffer = (char *)calloc(1, WORKER_BUFFER_SIZE);
   free(arg);
 
-  int bytes_received = recv(socket_fd, buffer, HANDLER_BUFFER_SIZE - 1, 0);
+  int bytes_received = recv(socket_fd, buffer, WORKER_BUFFER_SIZE - 1, 0);
   if (bytes_received > 0) {
     buffer[bytes_received] = '\0';
     printf("Received %d bytes of data\n", bytes_received);
@@ -54,7 +95,7 @@ void handler(void *arg) {
     } else {
       printf("Failed to parse HTTP request\n\n");
     }
-    memset(buffer, 0, HANDLER_BUFFER_SIZE);
+    memset(buffer, 0, WORKER_BUFFER_SIZE);
   }
 
   free(buffer);
@@ -112,4 +153,12 @@ int stream_send_file(int socket_fd, int file_fd, struct stat *sb) {
     return -1;
   }
   return 0;
+}
+
+void *get_in_addr(struct sockaddr *sa) {
+  if (sa->sa_family == AF_INET) {
+    return &(((struct sockaddr_in *)sa)->sin_addr);
+  }
+
+  return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }

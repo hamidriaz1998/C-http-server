@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "../include/network.h"
+#include "../include/thread_handler.h"
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -9,14 +10,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-
-void *get_in_addr(struct sockaddr *sa) {
-  if (sa->sa_family == AF_INET) {
-    return &(((struct sockaddr_in *)sa)->sin_addr);
-  }
-
-  return &(((struct sockaddr_in6 *)sa)->sin6_addr);
-}
 
 server_t *init_server(int port, int max_connections, int thread_count) {
   // Allocate server
@@ -38,10 +31,12 @@ server_t *init_server(int port, int max_connections, int thread_count) {
   return server;
 }
 
-bool setup_server(server_t *server) {
+bool setup_server(server_t *server, void (*connection_handler)(void *)) {
   if (server == NULL) {
     return false;
   }
+
+  server->connection_handler = connection_handler;
 
   struct addrinfo hints, *servinfo, *p;
   int yes = 1;
@@ -93,53 +88,24 @@ bool setup_server(server_t *server) {
     return false;
   }
 
-  if (listen(server->socket, server->max_connections) == -1) {
-    perror("listen");
-    return false;
-  }
-
   return true;
 }
 
-bool run_server(server_t *server, void (*connection_handler)(void *)) {
+bool run_server(server_t *server) {
   if (server == NULL) {
     return false;
   }
   server->is_running = true;
   // Start listener
-  if (listen(server->socket, BACKLOG) == -1) {
+  if (listen(server->socket, server->max_connections) == -1) {
     perror("listen");
     return false;
   }
-
   printf("Server Listening on port %d\n", server->port);
 
-  struct sockaddr_storage client_addr; // Client address info
-  char s[INET6_ADDRSTRLEN];
-  while (server->is_running) {
-    socklen_t size = sizeof(client_addr);
-    int client_socket =
-        accept(server->socket, (struct sockaddr *)&client_addr, &size);
+  // Start Acceptor thread
+  pthread_create(&server->acceptor_thread, NULL, acceptor_thread, server);
 
-    if (client_socket == -1) {
-      perror("accept");
-      continue;
-    }
-    if (!server->is_running) {
-      close(client_socket);
-      break;
-    }
-
-    inet_ntop(client_addr.ss_family,
-              get_in_addr((struct sockaddr *)&client_addr), s, sizeof(s));
-    printf("Got connection from %s\n", s);
-
-    // Handle connections
-    int *socket = (int *)malloc(
-        sizeof(int)); // client socket on heap for passing to thread
-    *socket = client_socket;
-    thread_pool_add_task(server->thp, connection_handler, (void *)socket);
-  }
   return true;
 }
 
