@@ -22,7 +22,6 @@ void handler(void *arg) {
   if (bytes_received > 0) {
     buffer[bytes_received] = '\0';
     printf("Received %d bytes of data\n", bytes_received);
-    printf("Raw data: \n%s\n", buffer);
 
     // Parse the HTTP request
     http_request *req = parse_request(buffer);
@@ -91,7 +90,7 @@ void handle_get(http_request *req, int socket_fd) {
 
   hashtable *headers = ht_create();
   char content_length[20];
-  sprintf(content_length, "%ld", sb.st_size);
+  snprintf(content_length, 20, "%ld", sb.st_size);
   ht_set(headers, "Content-Type", (void *)content_type);
   ht_set(headers, "Content-Length", (void *)content_length);
   http_response *res = http_response_create(200, NULL, 0, headers);
