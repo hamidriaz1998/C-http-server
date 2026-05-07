@@ -11,14 +11,14 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BUFFER_SIZE 2048
+#define HANDLER_BUFFER_SIZE 2048
 
 void handler(void *arg) {
   int socket_fd = *(int *)arg;
-  char *buffer = (char *)calloc(1, BUFFER_SIZE);
+  char *buffer = (char *)calloc(1, HANDLER_BUFFER_SIZE);
   free(arg);
 
-  int bytes_received = recv(socket_fd, buffer, BUFFER_SIZE - 1, 0);
+  int bytes_received = recv(socket_fd, buffer, HANDLER_BUFFER_SIZE - 1, 0);
   if (bytes_received > 0) {
     buffer[bytes_received] = '\0';
     printf("Received %d bytes of data\n", bytes_received);
@@ -54,7 +54,7 @@ void handler(void *arg) {
     } else {
       printf("Failed to parse HTTP request\n\n");
     }
-    memset(buffer, 0, BUFFER_SIZE);
+    memset(buffer, 0, HANDLER_BUFFER_SIZE);
   }
 
   free(buffer);
@@ -68,7 +68,7 @@ void handle_get(http_request *req, int socket_fd) {
   if (resolve_request_path(req->path, doc_root, full_path, sizeof(full_path)) !=
       0) {
     printf("Error resolving request path: %s\n", req->path);
-    http_response *res = http_response_create(404, NULL, 0, NULL);
+    http_response *res = http_response_create(HTTP_NOT_FOUND, NULL, 0, NULL);
     send_response(socket_fd, res);
     return;
   }
@@ -90,13 +90,12 @@ void handle_get(http_request *req, int socket_fd) {
 
   hashtable *headers = ht_create();
   char content_length[20];
-  snprintf(content_length, 20, "%ld", sb.st_size);
+  snprintf(content_length, sizeof(content_length), "%ld", sb.st_size);
   ht_set(headers, "Content-Type", (void *)content_type);
   ht_set(headers, "Content-Length", (void *)content_length);
-  http_response *res = http_response_create(200, NULL, 0, headers);
+  http_response *res = http_response_create(HTTP_OK, NULL, 0, headers);
   send_response(socket_fd, res);
   free_http_response(res);
-  // ht_destroy(headers);
 
   // Send file content
   if (stream_send_file(socket_fd, file_fd, &sb) == -1) {

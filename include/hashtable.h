@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #define INITIAL_CAPACITY 10
+#define HT_LOAD_FACTOR_DENOM 2
+#define HT_EXPANSION_FACTOR 2
 
 typedef struct {
   const char *key;

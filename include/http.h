@@ -11,6 +11,11 @@ enum http_status {
   HTTP_INTERNAL_SERVER_ERROR = 500,
 };
 
+#define HTTP_METHOD_INVALID -1
+#define HTTP_HEADER_SEPARATOR_LEN 4
+#define RESPONSE_BUFFER_SIZE 4096
+#define CONTENT_LENGTH_BUF_SIZE 32
+
 enum http_method {
   HTTP_GET,
   HTTP_POST,

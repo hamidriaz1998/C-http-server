@@ -58,7 +58,7 @@ const char *ht_set(hashtable *table, const char *key, void *value) {
     return NULL;
   }
 
-  if (table->length >= table->capacity / 2) {
+  if (table->length >= table->capacity / HT_LOAD_FACTOR_DENOM) {
     if (!ht_expand(table)) {
       return NULL;
     }
@@ -98,7 +98,7 @@ static const char *ht_set_entry(ht_entry *entries, size_t capacity,
 }
 
 static bool ht_expand(hashtable *table) {
-  size_t new_cap = table->capacity * 2;
+  size_t new_cap = table->capacity * HT_EXPANSION_FACTOR;
   if (new_cap < table->capacity) {
     return false; // Overflow
   }

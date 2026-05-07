@@ -47,7 +47,7 @@ static int url_decode(const char *src, char *dst, size_t dst_size) {
 
     if (ch == '\\')
       return -1;
-    if (ch < 0x20 || ch == 0x7F)
+    if (ch < ASCII_CTRL_START || ch == ASCII_DEL)
       return -1;
 
     if (di + 1 >= dst_size)
@@ -60,8 +60,8 @@ static int url_decode(const char *src, char *dst, size_t dst_size) {
 
 static int normalize_and_join(const char *path, const char *doc_root, char *out,
                               size_t out_size) {
-  const char *segments[256];
-  size_t seg_len[256];
+  const char *segments[MAX_PATH_SEGMENTS];
+  size_t seg_len[MAX_PATH_SEGMENTS];
   size_t seg_count = 0;
 
   const char *p = path;
@@ -88,7 +88,7 @@ static int normalize_and_join(const char *path, const char *doc_root, char *out,
       continue;
     }
 
-    if (seg_count >= 256)
+    if (seg_count >= MAX_PATH_SEGMENTS)
       return -1;
     segments[seg_count] = start;
     seg_len[seg_count] = len;

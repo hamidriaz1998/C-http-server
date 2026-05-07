@@ -27,7 +27,7 @@ int main() {
   sigaction(SIGTERM, &sa, NULL);
   sigaction(SIGQUIT, &sa, NULL);
 
-  server_t *server = init_server(PORT, 100, 8);
+  server_t *server = init_server(PORT, MAX_CONNECTIONS, DEFAULT_THREADS);
   if (!setup_server(server)) {
     fprintf(stderr, "Failed to setup server\n");
     free_server(server);

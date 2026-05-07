@@ -14,7 +14,7 @@ int string_to_method(char *method_str) {
   } else if (strcmp(method_str, "DELETE") == 0) {
     return HTTP_DELETE;
   }
-  return -1;
+  return HTTP_METHOD_INVALID;
 }
 
 char *method_to_string(int method) {
@@ -50,7 +50,7 @@ http_request *parse_request(char *req_str) {
 
   if (body_start != NULL) {
     *body_start = '\0'; // Terminate headers section
-    body_start += 4;    // Move past \r\n\r\n to start of body
+    body_start += HTTP_HEADER_SEPARATOR_LEN;    // Move past \r\n\r\n to start of body
   }
 
   // Parse request line
@@ -79,7 +79,7 @@ http_request *parse_request(char *req_str) {
   req->path = strdup(path);
   req->version = strdup(version);
 
-  if (req->method == -1 || req->path == NULL || req->version == NULL) {
+  if (req->method == HTTP_METHOD_INVALID || req->path == NULL || req->version == NULL) {
     free_http_request(req);
     free(line_copy);
     free(req_copy);
@@ -147,7 +147,7 @@ http_response *http_response_create(int status_code, char *body, int body_len,
     res->body = NULL;
   } else {
     res->body = malloc(body_len);
-    char content_length_str[32];
+    char content_length_str[CONTENT_LENGTH_BUF_SIZE];
     snprintf(content_length_str, sizeof(content_length_str), "%d", body_len);
     ht_set(res->headers, "Content-Length", content_length_str);
     ht_set(res->headers, "Content-Type", "text/plain");
@@ -176,7 +176,7 @@ void http_resp_to_str(http_response *res, char *response, size_t max_len) {
 }
 
 void send_response(int fd, http_response *res) {
-  size_t buffer_len = 4096;
+  size_t buffer_len = RESPONSE_BUFFER_SIZE;
   char response[buffer_len];
   http_resp_to_str(res, response, buffer_len);
   size_t total_sent = 0;

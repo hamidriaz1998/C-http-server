@@ -6,10 +6,11 @@
 #include <sys/socket.h>
 
 #define PORT 9000
-#define MAX_CONNECTIONS 100
+#define MAX_CONNECTIONS 10000
 #define MAX_THREADS 10
+#define DEFAULT_THREADS 8
 #define BACKLOG 30
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 4096
 
 typedef struct server {
   thread_pool_t *thp;
