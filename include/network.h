@@ -6,7 +6,9 @@
 #include <sys/socket.h>
 
 #define PORT 9000
-#define MAX_CONNECTIONS 10000
+// nginx uses 511 Max connections on linux. See:
+// https://github.com/nginx/nginx/blob/master/src/os/unix/ngx_linux_config.h
+#define MAX_CONNECTIONS 511
 #define MAX_THREADS 10
 #define DEFAULT_THREADS 8
 #define BUFFER_SIZE 4096
