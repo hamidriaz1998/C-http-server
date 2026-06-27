@@ -1,12 +1,9 @@
-#include "http.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#ifndef THREAD_HANDLER_H
+#define THREAD_HANDLER_H
 
 #define WORKER_BUFFER_SIZE 2048
 
-void *acceptor_thread(void *arg);
-void worker_thread(void *arg);
+void set_doc_root(const char *root);
 void connection_handler(void *arg);
+
+#endif

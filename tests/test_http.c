@@ -11,7 +11,7 @@ void print_request(http_request *req) {
   }
 
   printf("=== HTTP Request ===\n");
-  printf("Method: %s\n", req->method ? req->method : "NULL");
+  printf("Method: %s\n", method_to_string(req->method));
   printf("Path: %s\n", req->path ? req->path : "NULL");
   printf("Version: %s\n", req->version ? req->version : "NULL");
 
@@ -52,7 +52,7 @@ void test_simple_get_request() {
   print_request(req);
 
   assert(req != NULL);
-  assert(strcmp(req->method, "GET") == 0);
+  assert(req->method == HTTP_GET);
   assert(strcmp(req->path, "/index.html") == 0);
   assert(strcmp(req->version, "HTTP/1.1") == 0);
 
@@ -74,7 +74,7 @@ void test_post_request_with_body() {
   print_request(req);
 
   assert(req != NULL);
-  assert(strcmp(req->method, "POST") == 0);
+  assert(req->method == HTTP_POST);
   assert(strcmp(req->path, "/api/users") == 0);
   assert(req->body != NULL);
 
@@ -126,7 +126,7 @@ void test_headers_only() {
   print_request(req);
 
   assert(req != NULL);
-  assert(strcmp(req->method, "GET") == 0);
+  assert(req->method == HTTP_GET);
 
   // Test specific headers
   char *host = (char *)ht_get(req->headers, "Host");

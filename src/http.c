@@ -182,8 +182,9 @@ void send_response(int fd, http_response *res) {
   size_t total_sent = 0;
   size_t response_len = strlen(response);
   while (total_sent < response_len) {
+      // MSG_NOSIGNAL prevents SIGPIPE on broken (disconnected) pipes
     ssize_t sent =
-        send(fd, response + total_sent, response_len - total_sent, 0);
+        send(fd, response + total_sent, response_len - total_sent, MSG_NOSIGNAL);
     if (sent <= 0) {
       // Error or connection closed
       break;
