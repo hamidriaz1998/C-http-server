@@ -9,11 +9,12 @@ deque_t *deque_init(void) {
     deque_t *d = malloc(sizeof(deque_t));
     if (!d) return NULL;
 
-    d->buffer = calloc(DEQUE_INIT_SIZE, sizeof(task_t *));
-    if (!d->buffer) {
+    task_t **buf = calloc(DEQUE_INIT_SIZE, sizeof(task_t *));
+    if (!buf) {
         free(d);
         return NULL;
     }
+    atomic_init(&d->buffer, buf);
     atomic_init(&d->size, DEQUE_INIT_SIZE);
     atomic_init(&d->top, 0);
     atomic_init(&d->bottom, 0);
@@ -27,10 +28,9 @@ static int deque_grow(deque_t *d, int new_bottom, int new_top) {
     if (!new_buf) return -1;
 
     for (int i = new_top; i < new_bottom; i++)
-        new_buf[i] = (task_t *)d->buffer[i];
+        new_buf[i] = (task_t *)atomic_load(&d->buffer)[i];
 
-    free(d->buffer);
-    d->buffer = new_buf;
+    atomic_store(&d->buffer, new_buf);
     atomic_store(&d->size, new_size);
     return 0;
 }
@@ -44,7 +44,9 @@ void deque_push_bottom(deque_t *d, task_t *t) {
         if (deque_grow(d, b, top) != 0)
             return;
     }
-    d->buffer[b] = t;
+
+    task_t **buf = atomic_load(&d->buffer);
+    buf[b] = t;
     atomic_thread_fence(memory_order_release);
     atomic_store(&d->bottom, b + 1);
 }
@@ -57,7 +59,8 @@ task_t *deque_pop_bottom(deque_t *d) {
 
     task_t *task = NULL;
     if (t <= b) {
-        task = (task_t *)d->buffer[b];
+        task_t **buf = atomic_load(&d->buffer);
+        task = buf[b];
         if (t == b) {
             if (!atomic_compare_exchange_strong(&d->top, &t, t + 1))
                 task = NULL;
@@ -76,7 +79,8 @@ task_t *deque_steal(deque_t *d) {
 
     task_t *task = NULL;
     if (t < b) {
-        task = (task_t *)d->buffer[t];
+        task_t **buf = atomic_load(&d->buffer);
+        task = buf[t];
         if (!atomic_compare_exchange_strong(&d->top, &t, t + 1))
             task = NULL;
     }
@@ -89,6 +93,6 @@ int deque_size(deque_t *d) {
 
 void deque_free(deque_t *d) {
     if (!d) return;
-    free(d->buffer);
+    free(atomic_load(&d->buffer));
     free(d);
 }

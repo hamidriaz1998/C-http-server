@@ -1,79 +1,111 @@
-# C HTTP Server
+# Work-Stealing Scheduler Study: HTTP/1.1 Server
 
-A small, educational HTTP/1.1 server written in C. It focuses on the basics: a
-simple TCP listener, a thread pool for request handling, a minimal HTTP parser,
-and static file serving from a public directory. The code is intentionally
-compact and easy to follow so you can experiment with networking, concurrency,
-and request parsing.
+## Overview
 
-## Current Architecture
+C HTTP/1.1 server comparing four thread-pool scheduling policies:
+- **RR** (Round Robin) — mutex-based per-worker task queue with lock-steering
+- **RS** (Random Steal) — Chase-Lev lock-free deque, random victim, fixed 50µs idle sleep
+- **LQS** (Local Queue Size) — Chase-Lev deque, victim with largest queue, fixed 50µs idle sleep
+- **AS** (Adaptive Sleep) — Chase-Lev deque, random victim, p99-driven adaptive sleep (10–100µs)
 
-- Entry point: `main.c` sets up signal handling, initializes the server, and
-  starts the request loop.
-- Networking: `src/network.c` owns socket setup, bind/listen/accept, and hands
-  accepted connections to the thread pool.
-- Thread pool: `src/thread_pool.c` + `src/queue.c` implement a basic task queue
-  with worker threads waiting on a condition variable.
-- HTTP parsing: `src/http.c` parses request lines, headers, and optional body
-  into `http_request` and builds `http_response` structures.
-- Request handling: `src/handler.c` currently supports GET only. It resolves
-  the requested path, builds headers, and streams files using `sendfile`.
-- Utilities: `src/utils.c` provides path normalization, URL decoding, and MIME
-  type detection.
-- Data structures: `src/hashtable.c` implements a small hash table used for
-  headers.
+## Environment (Benchmarked On)
 
-Static files are served from the `public/` directory. Paths are normalized to
-prevent directory traversal and the default file is `index.html`.
+| Component | Detail |
+|-----------|--------|
+| CPU | Intel Core i5-8350U @ 1.70 GHz (4C/8T) |
+| OS | Arch Linux, kernel 6.x |
+| Compiler | gcc 16.1.1 |
+| Wrk | wrk 4.2.0 [epoll] |
+| Python | 3.x |
+| Python deps | numpy, scipy, matplotlib |
+
+## Compilation
+
+```bash
+# Debug build (default)
+make
+
+# Release build (O3 + LTO + march=native)
+make release
+
+# Clean
+make clean
+
+# With AddressSanitizer
+make CFLAGS="-Iinclude -Wall -Wextra -std=c11 -g -fsanitize=address -fsanitize=undefined"
+```
+
+The binary is produced at `bin/server`.
 
 ## Usage
 
-### Build
-
 ```bash
-make
+./bin/server --help
 ```
 
-The binary is created at `bin/server`.
-
-### Run
-
-```bash
-./bin/server
+```
+Usage: bin/server [options]
+  -p, --port <port>          Port number (default: 9000)
+  -r, --root <path>          Document root (default: ./public)
+  -t, --threads <n>          Number of worker threads (default: 4)
+  -s, --scheduler <type>     Scheduler: rr, rs, lqs, as (default: rr)
+  -b, --steal-batch <mode>   Steal batch: 1 or half (default: 1)
+  -h, --help                 Show this help
 ```
 
-By default the server listens on port `9000` and serves files from `./public`.
-Open `http://localhost:9000/` to verify.
-
-### Tests
-
-The makefile supports per-component tests. For example:
+### Quick Smoke Test
 
 ```bash
-make test-http
+./bin/server -p 8080 -r ./corpus -t 4 -s rs &
+curl -o /dev/null -w "%{http_code}" http://localhost:8080/   # → 200
+kill %1
 ```
 
-See `tests/README.md` for details.
+### Manual Benchmark
 
-## Project Layout
+```bash
+./bin/server -p 8080 -r ./corpus -t 4 -s as &
+wrk -t4 -c32 -d30s --latency http://localhost:8080/
+kill %1
+```
 
-- `main.c` entry point
-- `include/` public headers
-- `src/` implementation files
-- `public/` static assets served by the server
-- `tests/` component tests
-- `makefile` build and test targets
-- `roadmap.md` planned improvements
+## Automated Benchmark Suite
 
-## Future Plans
+Two runners are provided:
 
-Based on `roadmap.md`:
+### Python (recommended)
 
-- Remove magic numbers and hardcoded values
-- Make the document root configurable (currently `./public`)
-- Make the port configurable (currently `9000`)
-- Improve concurrency with an acceptor thread and epoll-based workers
-- Add logging
-- Add CLI arguments
+```bash
+python3 run_bench.py
+```
 
-If you want to contribute, open an issue or pick a roadmap item and send a PR.
+Runs 4 schedulers × 4 thread counts × 3 repeats = 48 runs. Results written to `bench_results/results.csv`. Uses `wrk -t4 -c32 -d10s`.
+Each run requires 15 seconds. So, (48 * 15)/60 = 12 minutes are required for the script to complete.
+
+
+### Analysis & Plots
+
+```bash
+python3 analyze.py
+```
+
+Reads `bench_results/results.csv` and produces 4 PNG plots in `bench_results/plots/`:
+- `speedup.png` — throughput + speedup vs RR 1T across all schedulers
+- `amdahl.png` — Amdahl's Law curve fit (estimates parallel fraction p)
+- `4t_comparison.png` — bar chart at 4 threads
+- `heatmap.png` — throughput heatmap (scheduler × threads)
+
+## Results (10 s, wrk -t4 -c32, corpus/index.html)
+
+| Scheduler | 1T | 2T | 4T | 8T | vs RR @ 8T |
+|-----------|-----|-----|------|------|----------|
+| RR | 23,240 | 25,902 | 10,853 | 8,159 | 1.00x |
+| RS | 14,985 | 6,920 | 12,774 | 15,665 | 1.92x |
+| LQS | 14,727 | 6,979 | 5,244 | 1,929 | 0.24x |
+| AS | 15,303 | 7,607 | 15,451 | **16,648** | **2.04x** |
+
+- **AS wins at 4–8 threads**: adaptive sleep reduces idle-wait overhead vs fixed-sleep RS
+- **RR wins at 1–2 threads**: no steal overhead, but mutex contention kills scaling at 4T+
+- **LQS loses**: O(n) scan of all deques per steal iteration is prohibitively expensive
+- **2T dip** in all WS: all tasks land on worker 0, creating a steal bottleneck with few thieves
+- Work-stealing schedulers (RS, AS) beat RR by 1.9–2.0× at 8 threads

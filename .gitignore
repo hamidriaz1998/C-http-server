@@ -63,3 +63,4 @@ public/
 proposal/
 *.pdf
 *.typ
+bench_results/

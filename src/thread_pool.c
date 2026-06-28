@@ -34,6 +34,7 @@ struct thread_pool {
     int steal_half;
     int next_worker;
     pthread_mutex_t rr_lock;
+    deque_t *main_deque;
 };
 
 static inline uint64_t ns_now(void) {
@@ -64,122 +65,51 @@ static uint64_t compute_p99(worker_thread_t *w) {
     return sorted[(int)(n * 0.99)];
 }
 
-static void ws_as_steal_and_exec(worker_thread_t *w, thread_pool_t *tp) {
-    int num = tp->num_threads;
-    uint64_t p99 = compute_p99(w);
-    int probes;
-    int sleep_ms;
+static deque_t *victim_deque(thread_pool_t *tp, int idx) {
+    if (idx == tp->num_threads)
+        return tp->main_deque;
+    return tp->workers[idx].task_deque;
+}
 
-    if (p99 == 0 || p99 < AS_TARGET_NS / 2) {
-        probes = 1;
-        sleep_ms = 10;
-    } else if (p99 < AS_TARGET_NS) {
-        probes = 1;
-        sleep_ms = 5;
-    } else if (p99 < AS_TARGET_NS * 3) {
-        probes = 3;
-        sleep_ms = 2;
+static int ws_do_steal(worker_thread_t *w, thread_pool_t *tp, int max_tasks) {
+    int num_victims = tp->num_threads + 1;
+    int victim;
+
+    if (tp->scheduler_type == POLICY_LQS) {
+        victim = -1;
+        int max_sz = 0;
+        for (int i = 0; i < num_victims; i++) {
+            if (i == w->id) continue;
+            int sz = deque_size(victim_deque(tp, i));
+            if (sz > max_sz) { max_sz = sz; victim = i; }
+        }
     } else {
-        probes = num - 1;
-        sleep_ms = 1;
+        victim = rand() % num_victims;
+        if (victim == w->id) victim = (victim + 1) % num_victims;
     }
+    if (victim < 0 || victim >= num_victims) return 0;
 
-    if (probes > num - 1) probes = num - 1;
+    deque_t *vd = victim_deque(tp, victim);
+    int sz = deque_size(vd);
+    if (sz == 0) return 0;
 
-    for (int p = 0; p < probes; p++) {
-        int victim = rand() % num;
-        if (victim == w->id) victim = (victim + 1) % num;
-        int sz = deque_size(tp->workers[victim].task_deque);
-        if (sz == 0) continue;
+    int count = tp->steal_half ? (sz / 2) : 1;
+    if (count < 1) count = 1;
+    if (count > max_tasks) count = max_tasks;
 
-        int count = tp->steal_half ? (sz / 2) : 1;
-        if (count < 1) count = 1;
-        for (int i = 0; i < count; i++) {
-            task_t *t = deque_steal(tp->workers[victim].task_deque);
-            if (!t) break;
-            metrics_record_steal(&w->metrics, 1);
-            uint64_t start = ns_now();
-            t->function(t->arg);
-            uint64_t end = ns_now();
-            metrics_record_task(&w->metrics, start, end);
-            if (w->latency_ring_count < AS_RING_SIZE) w->latency_ring_count++;
-            w->latency_ring[w->latency_ring_idx] = end - start;
-            w->latency_ring_idx = (w->latency_ring_idx + 1) % AS_RING_SIZE;
-            free(t);
-        }
-        if (deque_size(tp->workers[victim].task_deque) > 0)
-            probes++;
+    int stolen = 0;
+    for (int i = 0; i < count; i++) {
+        task_t *t = deque_steal(vd);
+        if (!t) break;
+        metrics_record_steal(&w->metrics, 1);
+        deque_push_bottom(w->task_deque, t);
+        stolen++;
     }
-
-    if (sleep_ms > 0) {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_nsec += sleep_ms * 1000000;
-        if (ts.tv_nsec >= 1000000000) {
-            ts.tv_sec++;
-            ts.tv_nsec -= 1000000000;
-        }
-        pthread_mutex_lock(&w->lock);
-        if (!tp->shutdown)
-            pthread_cond_timedwait(&w->cvar, &w->lock, &ts);
-        pthread_mutex_unlock(&w->lock);
-    }
+    return stolen;
 }
 
 static void *rr_worker_loop(void *arg);
 static void *ws_worker_loop(void *arg);
-static void ws_steal_and_exec(worker_thread_t *w, thread_pool_t *tp) {
-    int num = tp->num_threads;
-
-    if (tp->scheduler_type == POLICY_AS) {
-        ws_as_steal_and_exec(w, tp);
-        return;
-    }
-
-    if (tp->scheduler_type == POLICY_LQS) {
-        int victim = -1;
-        int max_size = 0;
-        for (int i = 0; i < num; i++) {
-            if (i == w->id) continue;
-            int sz = deque_size(tp->workers[i].task_deque);
-            if (sz > max_size) {
-                max_size = sz;
-                victim = i;
-            }
-        }
-        if (victim < 0) return;
-
-        int count = tp->steal_half ? (max_size / 2) : 1;
-        if (count < 1) count = 1;
-        for (int i = 0; i < count; i++) {
-            task_t *t = deque_steal(tp->workers[victim].task_deque);
-            if (!t) break;
-            metrics_record_steal(&w->metrics, 1);
-            uint64_t start = ns_now();
-            t->function(t->arg);
-            uint64_t end = ns_now();
-            metrics_record_task(&w->metrics, start, end);
-            free(t);
-        }
-    } else {
-        int victim = rand() % num;
-        if (victim == w->id) victim = (victim + 1) % num;
-
-        int max_size = deque_size(tp->workers[victim].task_deque);
-        int count = tp->steal_half ? (max_size / 2) : 1;
-        if (count < 1) count = 1;
-        for (int i = 0; i < count; i++) {
-            task_t *t = deque_steal(tp->workers[victim].task_deque);
-            if (!t) break;
-            metrics_record_steal(&w->metrics, 1);
-            uint64_t start = ns_now();
-            t->function(t->arg);
-            uint64_t end = ns_now();
-            metrics_record_task(&w->metrics, start, end);
-            free(t);
-        }
-    }
-}
 
 static void *rr_worker_loop(void *arg) {
     worker_thread_t *w = (worker_thread_t *)arg;
@@ -209,6 +139,11 @@ static void *rr_worker_loop(void *arg) {
     return NULL;
 }
 
+static void ws_sleep(int us) {
+    struct timespec ts = { .tv_sec = us / 1000000, .tv_nsec = (us % 1000000) * 1000 };
+    nanosleep(&ts, NULL);
+}
+
 static void *ws_worker_loop(void *arg) {
     worker_thread_t *w = (worker_thread_t *)arg;
     thread_pool_t *tp = w->pool;
@@ -217,22 +152,21 @@ static void *ws_worker_loop(void *arg) {
         task_t *task = deque_pop_bottom(w->task_deque);
         if (!task) {
             uint64_t idle_start = ns_now();
-            ws_steal_and_exec(w, tp);
+            ws_do_steal(w, tp, 8);
             uint64_t idle_end = ns_now();
+
             task = deque_pop_bottom(w->task_deque);
             if (!task) {
                 atomic_fetch_add(&w->metrics.idle_ns, idle_end - idle_start);
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_nsec += 5000000;
-                if (ts.tv_nsec >= 1000000000) {
-                    ts.tv_sec++;
-                    ts.tv_nsec -= 1000000000;
+                if (tp->scheduler_type == POLICY_AS && w->latency_ring_count >= 10) {
+                    uint64_t p99 = compute_p99(w);
+                    int slp = p99 < AS_TARGET_NS / 2 ? 100 :
+                              p99 < AS_TARGET_NS ? 50 :
+                              p99 < AS_TARGET_NS * 3 ? 20 : 10;
+                    ws_sleep(slp);
+                } else {
+                    ws_sleep(50);
                 }
-                pthread_mutex_lock(&w->lock);
-                if (!tp->shutdown)
-                    pthread_cond_timedwait(&w->cvar, &w->lock, &ts);
-                pthread_mutex_unlock(&w->lock);
             }
         }
         if (task) {
@@ -263,9 +197,19 @@ thread_pool_t *thread_pool_init(int num_threads, int scheduler_type, int steal_h
     tp->scheduler_type = scheduler_type;
     tp->steal_half = steal_half;
     tp->next_worker = 0;
+    tp->main_deque = NULL;
     if (pthread_mutex_init(&tp->rr_lock, NULL) != 0) {
         free(tp);
         return NULL;
+    }
+
+    if (scheduler_type != POLICY_RR) {
+        tp->main_deque = deque_init();
+        if (!tp->main_deque) {
+            pthread_mutex_destroy(&tp->rr_lock);
+            free(tp);
+            return NULL;
+        }
     }
 
     tp->workers = malloc(sizeof(worker_thread_t) * num_threads);
@@ -373,11 +317,7 @@ void thread_pool_submit(thread_pool_t *tp, void (*fn)(void *), void *arg) {
         pthread_cond_signal(&w->cvar);
         pthread_mutex_unlock(&w->lock);
     } else {
-        worker_thread_t *w = &tp->workers[0];
-        deque_push_bottom(w->task_deque, task);
-        pthread_mutex_lock(&w->lock);
-        pthread_cond_signal(&w->cvar);
-        pthread_mutex_unlock(&w->lock);
+        deque_push_bottom(tp->main_deque, task);
     }
 }
 
@@ -416,6 +356,7 @@ void thread_pool_free(thread_pool_t *tp) {
         pthread_mutex_destroy(&w->lock);
     }
 
+    if (tp->main_deque) deque_free(tp->main_deque);
     free(tp->workers);
     pthread_mutex_destroy(&tp->rr_lock);
     free(tp);

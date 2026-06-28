@@ -7,7 +7,7 @@
 typedef struct task task_t;
 
 typedef struct {
-    task_t **buffer;
+    _Atomic(task_t **) buffer;
     atomic_int size;
     atomic_int top;
     atomic_int bottom;

@@ -1,26 +1,29 @@
 #!/bin/bash
 # Benchmark runner for the work-stealing HTTP server
-# Usage: ./bench.sh [--schedulers "rr rs lqs as"] [--threads "1 2 4 8"] [--port 9000] [--duration 30s] [--warmup 10s]
+set -euo pipefail
 
-HOST="http://localhost"
-DURATION="30s"
-WARMUP="10s"
+DURATION=15
+WARMUP=5
 SCHEDULERS="rr rs lqs as"
 THREADS="1 2 4 8"
 PORT=9000
-WRK2="wrk"
+WRK="wrk"
 REPEAT=3
 RESULTS_DIR="bench_results"
+ROOT="./corpus"
 
 usage() {
-    echo "Usage: $0 [options]"
-    echo "  --schedulers <list>    Space-separated scheduler list (default: '$SCHEDULERS')"
-    echo "  --threads <list>       Space-separated thread counts (default: '$THREADS')"
-    echo "  --port <n>             Base port (default: $PORT)"
-    echo "  --duration <t>         Test duration (default: $DURATION)"
-    echo "  --repeat <n>           Repeats per config (default: $REPEAT)"
-    echo "  --wrk2 <path>          Path to wrk2 binary (default: $WRK2)"
-    echo "  --help                 Show this help"
+    cat <<EOF
+Usage: $0 [options]
+  --schedulers <list>    Space-separated scheduler list (default: '$SCHEDULERS')
+  --threads <list>       Space-separated thread counts (default: '$THREADS')
+  --port <n>             Base port (default: $PORT)
+  --duration <s>         Test duration in seconds (default: $DURATION)
+  --warmup <s>           Warmup duration in seconds (default: $WARMUP)
+  --repeat <n>           Repeats per config (default: $REPEAT)
+  --root <path>          Document root (default: $ROOT)
+  --help                 Show this help
+EOF
     exit 0
 }
 
@@ -30,8 +33,9 @@ while [[ $# -gt 0 ]]; do
         --threads)    THREADS="$2"; shift 2 ;;
         --port)       PORT="$2"; shift 2 ;;
         --duration)   DURATION="$2"; shift 2 ;;
-        --repeat)     REPEAT="$3"; shift 2 ;;
-        --wrk2)       WRK2="$2"; shift 2 ;;
+        --warmup)     WARMUP="$2"; shift 2 ;;
+        --repeat)     REPEAT="$2"; shift 2 ;;
+        --root)       ROOT="$2"; shift 2 ;;
         --help)       usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -49,11 +53,7 @@ cat /proc/sys/net/core/somaxconn >> "$RESULTS_DIR/system.info"
 echo "" >> "$RESULTS_DIR/system.info"
 
 RESULTS_FILE="$RESULTS_DIR/results.csv"
-echo "scheduler,threads,run,throughput,p50,p95,p99,p999,errors" > "$RESULTS_FILE"
-
-build_server() {
-    make release 2>&1 | tail -1
-}
+echo "scheduler,threads,run,throughput,p50_ms,p75_ms,p99_ms,errors" > "$RESULTS_FILE"
 
 run=0
 total_runs=$(echo "$SCHEDULERS" | wc -w)
@@ -63,13 +63,14 @@ for sched in $SCHEDULERS; do
     for thr in $THREADS; do
         for rep in $(seq 1 $REPEAT); do
             run=$((run + 1))
-            port=$((PORT + run - 1))
-            echo "[$run/$total_runs] sched=$sched threads=$thr run=$rep (port $port)"
+            port=$((PORT + run))
+            echo "[$run/$total_runs] sched=$sched threads=$thr run=$rep"
 
-            timeout $((DURATION + 5)) ./bin/server \
+            timeout $((DURATION + WARMUP + 5)) ./bin/server \
                 --port "$port" \
                 --threads "$thr" \
-                --scheduler "$sched" > /dev/null 2>&1 &
+                --scheduler "$sched" \
+                --root "$ROOT" > "$RESULTS_DIR/server_${sched}_${thr}_${rep}.log" 2>&1 &
             SERVER_PID=$!
 
             sleep 1
@@ -79,22 +80,22 @@ for sched in $SCHEDULERS; do
                 continue
             fi
 
-            if [ "$WARMUP" != "0s" ]; then
-                $WRK2 -t2 -c10 -d"$WARMUP" "http://localhost:$port/" > /dev/null 2>&1
+            if [ "$WARMUP" -gt 0 ]; then
+                $WRK -t2 -c10 -d"${WARMUP}s" "http://localhost:$port/" > /dev/null 2>&1 || true
             fi
 
-            OUT=$($WRK2 -t2 -c100 -d"$DURATION" "http://localhost:$port/" 2>&1)
-            kill $SERVER_PID 2>/dev/null
-            wait $SERVER_PID 2>/dev/null
+            OUT=$($WRK -t2 -c100 -d"${DURATION}s" "http://localhost:$port/" 2>&1 || true)
+
+            kill $SERVER_PID 2>/dev/null || true
+            wait $SERVER_PID 2>/dev/null || true
 
             throughput=$(echo "$OUT" | grep "Requests/sec" | awk '{print $2}')
-            p50=$(echo "$OUT" | grep "50%" | awk '{print $2}')
-            p95=$(echo "$OUT" | grep "95%" | awk '{print $2}')
-            p99=$(echo "$OUT" | grep "99%" | awk '{print $2}')
-            p999=$(echo "$OUT" | grep "99.9%" | awk '{print $2}' || echo "N/A")
+            p50=$(echo "$OUT" | grep "50.000%" | awk '{print $2}')
+            p75=$(echo "$OUT" | grep "75.000%" | awk '{print $2}')
+            p99=$(echo "$OUT" | grep "99.000%" | awk '{print $2}')
             errors=$(echo "$OUT" | grep "Socket errors" | sed 's/.*Socket errors: //' || echo "0")
 
-            echo "$sched,$thr,$rep,$throughput,$p50,$p95,$p99,$p999,$errors" >> "$RESULTS_FILE"
+            echo "$sched,$thr,$rep,$throughput,$p50,$p75,$p99,$errors" >> "$RESULTS_FILE"
             echo "  → $throughput req/s, p50=$p50, p99=$p99"
         done
     done
