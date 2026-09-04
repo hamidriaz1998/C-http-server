@@ -1,0 +1,54 @@
+show-today: true
+headers:
+  - month
+  - week
+start: 2026-05-10
+end: 2026-06-27
+tasks:
+  - name: "1. Planning & Proposal"
+    start: 2026-05-10
+    end: 2026-05-14
+  - name: "Implementation"
+    intervals:
+      - start: 2026-05-15
+        end: 2026-06-13
+    subtasks:
+      - name: "2. Core Server (Sequential)"
+        start: 2026-05-15
+        end: 2026-05-24
+      - name: "3. Round-Robin Baseline"
+        start: 2026-05-25
+        end: 2026-05-29
+      - name: "4. Work-Stealing: RS & LQS"
+        start: 2026-05-30
+        end: 2026-06-07
+      - name: "5. Adaptive Steal (AS)"
+        start: 2026-06-08
+        end: 2026-06-13
+  - name: "Evaluation"
+    intervals:
+      - start: 2026-06-09
+        end: 2026-06-21
+    subtasks:
+      - name: "6. Benchmarking & Experiments"
+        start: 2026-06-09
+        end: 2026-06-18
+      - name: "7. Data Analysis"
+        start: 2026-06-18
+        end: 2026-06-21
+  - name: "Reporting"
+    intervals:
+      - start: 2026-06-21
+        end: 2026-06-27
+    subtasks:
+      - name: "8. Paper Writing"
+        start: 2026-06-21
+        end: 2026-06-25
+      - name: "9. Final Polish & Submission"
+        id: final-polish
+        start: 2026-06-25
+        end: 2026-06-27
+# milestones:
+#   - name: "Submission Deadline"
+#     date: 2026-06-28
+#     show-date: true
