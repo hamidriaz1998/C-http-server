@@ -100,7 +100,10 @@ static int ws_do_steal(worker_thread_t *w, thread_pool_t *tp, int max_tasks) {
     int stolen = 0;
     for (int i = 0; i < count; i++) {
         task_t *t = deque_steal(vd);
-        if (!t) break;
+        if (!t) {
+            metrics_record_steal(&w->metrics, 0);
+            break;
+        }
         metrics_record_steal(&w->metrics, 1);
         deque_push_bottom(w->task_deque, t);
         stolen++;
@@ -334,7 +337,7 @@ void thread_pool_free(thread_pool_t *tp) {
     for (int i = 0; i < tp->num_threads; i++)
         pthread_join(tp->workers[i].thread, NULL);
 
-    printf("\n=== Worker Metrics ===\n");
+    printf("\n=== Per-Worker Metrics ===\n");
     for (int i = 0; i < tp->num_threads; i++) {
         worker_thread_t *w = &tp->workers[i];
         uint64_t done = atomic_load(&w->metrics.tasks_completed);
@@ -343,9 +346,61 @@ void thread_pool_free(thread_pool_t *tp) {
         uint64_t idle = atomic_load(&w->metrics.idle_ns);
         uint64_t sum = atomic_load(&w->metrics.task_ns_sum);
         uint64_t mx = atomic_load(&w->metrics.task_ns_max);
-        printf("  Worker %d: %lu tasks, %lu/%lu steals, idle=%lu ms, avg=%.1f us, max=%lu us\n",
+        uint64_t p50 = metrics_percentile(&w->metrics, 50);
+        uint64_t p99 = metrics_percentile(&w->metrics, 99);
+        printf("  Worker %d: %lu tasks, %lu/%lu steals, idle=%lu ms, avg=%.1f us, max=%lu us, p50=%lu us, p99=%lu us\n",
                i, done, succ, attempts, idle / 1000000,
-               done > 0 ? (sum / done) / 1000.0 : 0.0, mx / 1000);
+               done > 0 ? (sum / done) / 1000.0 : 0.0, mx / 1000,
+               p50 / 1000, p99 / 1000);
+    }
+
+    worker_metrics_t combined;
+    metrics_init(&combined);
+    uint64_t total_tasks = 0;
+    uint64_t total_steal_attempts = 0;
+    uint64_t total_steal_successes = 0;
+    for (int i = 0; i < tp->num_threads; i++) {
+        worker_thread_t *w = &tp->workers[i];
+        total_tasks += atomic_load(&w->metrics.tasks_completed);
+        total_steal_attempts += atomic_load(&w->metrics.steal_attempts);
+        total_steal_successes += atomic_load(&w->metrics.steal_successes);
+        for (int b = 0; b < HISTO_BUCKETS; b++)
+            atomic_fetch_add(&combined.latency_histo[b],
+                             atomic_load(&w->metrics.latency_histo[b]));
+        atomic_fetch_add(&combined.tasks_completed,
+                         atomic_load(&w->metrics.tasks_completed));
+    }
+
+    uint64_t g_p50 = metrics_percentile(&combined, 50);
+    uint64_t g_p95 = metrics_percentile(&combined, 95);
+    uint64_t g_p99 = metrics_percentile(&combined, 99);
+    uint64_t g_p999 = metrics_percentile(&combined, 99.9);
+    printf("\n=== Global Latencies ===\n");
+    printf("  p50=%lu us, p95=%lu us, p99=%lu us, p999=%lu us\n",
+           g_p50 / 1000, g_p95 / 1000, g_p99 / 1000, g_p999 / 1000);
+    printf("  Total tasks: %lu, steal success rate: %.1f%%\n",
+           total_tasks,
+           total_steal_attempts > 0
+               ? 100.0 * total_steal_successes / total_steal_attempts
+               : 0.0);
+
+    if (tp->scheduler_type != POLICY_RR) {
+        printf("\n=== CAS Contention ===\n");
+        int total_cas = 0;
+        if (tp->main_deque) {
+            int n = atomic_load(&tp->main_deque->cas_fail_count);
+            printf("  main_deque: %d CAS failures\n", n);
+            total_cas += n;
+        }
+        for (int i = 0; i < tp->num_threads; i++) {
+            deque_t *d = tp->workers[i].task_deque;
+            if (d) {
+                int n = atomic_load(&d->cas_fail_count);
+                printf("  worker[%d]: %d CAS failures\n", i, n);
+                total_cas += n;
+            }
+        }
+        printf("  Total CAS failures: %d\n", total_cas);
     }
 
     for (int i = 0; i < tp->num_threads; i++) {

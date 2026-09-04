@@ -18,6 +18,7 @@ deque_t *deque_init(void) {
     atomic_init(&d->size, DEQUE_INIT_SIZE);
     atomic_init(&d->top, 0);
     atomic_init(&d->bottom, 0);
+    atomic_init(&d->cas_fail_count, 0);
     return d;
 }
 
@@ -62,8 +63,10 @@ task_t *deque_pop_bottom(deque_t *d) {
         task_t **buf = atomic_load(&d->buffer);
         task = buf[b];
         if (t == b) {
-            if (!atomic_compare_exchange_strong(&d->top, &t, t + 1))
+            if (!atomic_compare_exchange_strong(&d->top, &t, t + 1)) {
                 task = NULL;
+                atomic_fetch_add(&d->cas_fail_count, 1);
+            }
             atomic_store(&d->bottom, b + 1);
         }
     } else {
@@ -81,8 +84,10 @@ task_t *deque_steal(deque_t *d) {
     if (t < b) {
         task_t **buf = atomic_load(&d->buffer);
         task = buf[t];
-        if (!atomic_compare_exchange_strong(&d->top, &t, t + 1))
+        if (!atomic_compare_exchange_strong(&d->top, &t, t + 1)) {
             task = NULL;
+            atomic_fetch_add(&d->cas_fail_count, 1);
+        }
     }
     return task;
 }

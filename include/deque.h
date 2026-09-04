@@ -11,6 +11,7 @@ typedef struct {
     atomic_int size;
     atomic_int top;
     atomic_int bottom;
+    atomic_int cas_fail_count;
 } deque_t;
 
 deque_t *deque_init(void);
