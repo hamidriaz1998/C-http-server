@@ -45,4 +45,24 @@ clean:
 clean-tests:
 	rm -f $(BIN_DIR)/test_*
 
-.PHONY: all clean clean-tests test-%
+.PHONY: bench analyze
+
+# Run full benchmark suite: 4 schedulers x 4 thread counts x 3 reps (48 runs)
+# Each run: 15s test + 5s warmup + overhead ~20s
+# Total: ~13 minutes
+bench: release
+	@echo "=============================================="
+	@echo " Starting benchmarks..."
+	@echo " 48 runs (4 schedulers x 4 threads x 3 reps)"
+	@echo " Estimated time: ~13 minutes"
+	@echo "=============================================="
+	@python3 scripts/run_bench.py
+
+# Analyze benchmark results and generate plots
+analyze:
+	@echo "Analyzing benchmark results..."
+	@python3 scripts/analyze.py
+	@echo ""
+	@echo "Plots saved to bench_results/plots/"
+
+.PHONY: all clean clean-tests test-% bench analyze
