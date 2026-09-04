@@ -64,3 +64,6 @@ proposal/
 *.pdf
 *.typ
 bench_results/
+*.zip
+*.aux
+*.log

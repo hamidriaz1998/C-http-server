@@ -1,47 +1,39 @@
-# Work-Stealing Scheduler Study: HTTP/1.1 Server
+# Steal or Wait? — Work-Stealing Scheduler Study
 
-## Overview
+C HTTP/1.1 file server comparing four thread-pool scheduling policies using epoll edge-triggered I/O, `sendfile()` zero-copy transfers, and POSIX threads.
 
-C HTTP/1.1 server comparing four thread-pool scheduling policies:
-- **RR** (Round Robin) — mutex-based per-worker task queue with lock-steering
-- **RS** (Random Steal) — Chase-Lev lock-free deque, random victim, fixed 50µs idle sleep
-- **LQS** (Local Queue Size) — Chase-Lev deque, victim with largest queue, fixed 50µs idle sleep
-- **AS** (Adaptive Sleep) — Chase-Lev deque, random victim, p99-driven adaptive sleep (10–100µs)
+## Scheduling Policies
 
-## Environment (Benchmarked On)
+| Policy | Queue | Steal Strategy |
+|--------|-------|----------------|
+| **RR** (Round-Robin) | Mutex-protected FIFO per worker | None — main thread dispatches in rotation |
+| **RS** (Random Steal) | Chase-Lev lock-free deque | Random victim, O(1) steal |
+| **LQS** (Longest-Queue Steal) | Chase-Lev lock-free deque | Scan all deques, steal from fullest, O(p) steal |
+| **AS** (Adaptive Steal) | Chase-Lev lock-free deque | Random victim + p99-driven EMA feedback loop |
 
-| Component | Detail |
-|-----------|--------|
-| CPU | Intel Core i5-8350U @ 1.70 GHz (4C/8T) |
-| OS | Arch Linux, kernel 6.x |
-| Compiler | gcc 16.1.1 |
-| Wrk | wrk 4.2.0 [epoll] |
-| Python | 3.x |
-| Python deps | numpy, scipy, matplotlib |
-
-## Compilation
+## Quick Start
 
 ```bash
-# Debug build (default)
-make
-
-# Release build (O3 + LTO + march=native)
+# Build (release)
 make release
 
-# Clean
-make clean
-
-# With AddressSanitizer
-make CFLAGS="-Iinclude -Wall -Wextra -std=c11 -g -fsanitize=address -fsanitize=undefined"
+# Smoke test
+./bin/server -p 8080 -r ./corpus -t 4 -s rs &
+curl -o /dev/null -w "%{http_code}" http://localhost:8080/   # → 200
+kill %1
 ```
 
-The binary is produced at `bin/server`.
-
-## Usage
+## Build
 
 ```bash
-./bin/server --help
+make          # Debug build (default)
+make release  # Release build (-O3 -march=native -flto -DNDEBUG)
+make clean
 ```
+
+Binary produced at `bin/server`.
+
+## Usage
 
 ```
 Usage: bin/server [options]
@@ -53,59 +45,86 @@ Usage: bin/server [options]
   -h, --help                 Show this help
 ```
 
-### Quick Smoke Test
+## Runtime Metrics
+
+On shutdown, the server prints per-worker stats (task count, steal success rate, idle time, avg/max task duration, p50/p99 latency), global latency percentiles (p50/p95/p99/p99.9), and — for the lock-free schedulers (RS, LQS, AS) — a CAS Contention report showing failed compare-and-swap attempts per deque.
+
+## Benchmarking
 
 ```bash
-./bin/server -p 8080 -r ./corpus -t 4 -s rs &
-curl -o /dev/null -w "%{http_code}" http://localhost:8080/   # → 200
-kill %1
-```
+# Full benchmark suite (48 runs, ~13 minutes)
+make bench
 
-### Manual Benchmark
-
-```bash
+# Manual single run
 ./bin/server -p 8080 -r ./corpus -t 4 -s as &
 wrk -t4 -c32 -d30s --latency http://localhost:8080/
 kill %1
 ```
 
-## Automated Benchmark Suite
+Results written to `bench_results/results.csv`.
 
-Two runners are provided:
-
-### Python (recommended)
+## Analysis
 
 ```bash
-python3 run_bench.py
+# Requires: numpy, scipy, matplotlib
+pip install numpy scipy matplotlib
+
+# Generate plots and summary tables
+make analyze
 ```
 
-Runs 4 schedulers × 4 thread counts × 3 repeats = 48 runs. Results written to `bench_results/results.csv`. Uses `wrk -t4 -c32 -d10s`.
-Each run requires 15 seconds. So, (48 * 15)/60 = 12 minutes are required for the script to complete.
+Reads `bench_results/results.csv` and produces PNG plots in `bench_results/plots/`:
 
+| Plot | Description |
+|------|-------------|
+| `speedup.png` | Throughput + speedup vs RR 1T across all schedulers |
+| `amdahl.png` | Amdahl's Law curve fit (parallel fraction estimate) |
+| `latency.png` | P99 latency vs thread count |
+| `4t_comparison.png` | Bar chart at 4 threads |
+| `heatmap.png` | Throughput heatmap (scheduler × threads) |
+| `scaling_strong.png` | Strong scaling speedup S(p) |
+| `scaling_weak.png` | Weak scaling efficiency E(p) |
 
-### Analysis & Plots
+## Papers
 
-```bash
-python3 analyze.py
+PDFs for the conference paper and appendices are in `docs/`:
+
+- `docs/paper.pdf` — main paper
+- `docs/appendices.pdf` — appendices (Gantt chart + experimental logbook)
+
+## Project Structure
+
+```
+├── main.c                  Entry point + epoll event loop
+├── makefile                Build + bench + analyze targets
+├── include/                Header files
+│   ├── cli.h               CLI argument parsing
+│   ├── deque.h             Chase-Lev lock-free deque
+│   ├── hashtable.h         HTTP header hashtable
+│   ├── http.h              HTTP request/response parsing
+│   ├── metrics.h           Per-thread steal counters + latency histogram
+│   ├── network.h           Socket / listener helpers
+│   ├── queue.h             Mutex-protected FIFO (RR)
+│   ├── thread_handler.h    Connection handler
+│   ├── thread_pool.h       Thread pool + scheduler interface
+│   └── utils.h             String utilities
+├── src/                    Implementation files
+├── tests/                  Component test drivers (make test-<name>)
+├── scripts/
+│   ├── run_bench.py        Automated benchmark runner
+│   └── analyze.py          Results analysis + plots
+├── docs/                   Paper, appendices
+├── bench_results/          Benchmark output (CSV + plots)
+└── corpus/                 Static file corpus for testing
 ```
 
-Reads `bench_results/results.csv` and produces 4 PNG plots in `bench_results/plots/`:
-- `speedup.png` — throughput + speedup vs RR 1T across all schedulers
-- `amdahl.png` — Amdahl's Law curve fit (estimates parallel fraction p)
-- `4t_comparison.png` — bar chart at 4 threads
-- `heatmap.png` — throughput heatmap (scheduler × threads)
+## Environment (Benchmarked On)
 
-## Results (10 s, wrk -t4 -c32, corpus/index.html)
-
-| Scheduler | 1T | 2T | 4T | 8T | vs RR @ 8T |
-|-----------|-----|-----|------|------|----------|
-| RR | 23,240 | 25,902 | 10,853 | 8,159 | 1.00x |
-| RS | 14,985 | 6,920 | 12,774 | 15,665 | 1.92x |
-| LQS | 14,727 | 6,979 | 5,244 | 1,929 | 0.24x |
-| AS | 15,303 | 7,607 | 15,451 | **16,648** | **2.04x** |
-
-- **AS wins at 4–8 threads**: adaptive sleep reduces idle-wait overhead vs fixed-sleep RS
-- **RR wins at 1–2 threads**: no steal overhead, but mutex contention kills scaling at 4T+
-- **LQS loses**: O(n) scan of all deques per steal iteration is prohibitively expensive
-- **2T dip** in all WS: all tasks land on worker 0, creating a steal bottleneck with few thieves
-- Work-stealing schedulers (RS, AS) beat RR by 1.9–2.0× at 8 threads
+| Component | Detail |
+|-----------|--------|
+| CPU | Intel Core i5-8350U @ 1.70 GHz (4C/8T, L3 6 MiB) |
+| RAM | 15 GiB |
+| OS | Arch Linux, kernel 7.0.12 |
+| Compiler | gcc 16.1.1 |
+| Load gen | wrk 4.2.0 [epoll] |
+| Python | 3.x with numpy, scipy, matplotlib |
